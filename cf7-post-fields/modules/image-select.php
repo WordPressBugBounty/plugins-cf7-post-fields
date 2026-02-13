@@ -19,9 +19,7 @@ if(!class_exists('wpcf7_post_fields_image_select') )
             // Add shortcode
             add_action('wpcf7_init', array($this, 'wpcf7_add_form_tag_post_image_select'));
 
-            // Validation filter
-            add_filter('wpcf7_validate_post_image_select', array($this, 'wpcf7_post_image_select_validation_filter'), 10, 2);
-            add_filter('wpcf7_validate_post_image_select*', array($this, 'wpcf7_post_image_select_validation_filter'), 10, 2);
+            add_action( 'wpcf7_swv_create_schema',  array( $this, 'wpcf7_swv_add_post_image_select_rules' ), 10, 2 );
 
             add_action('wpcf7_admin_init', array($this, 'wpcf7_add_tag_generator_menu'), 90);
         }
@@ -29,7 +27,13 @@ if(!class_exists('wpcf7_post_fields_image_select') )
         public function wpcf7_add_form_tag_post_image_select()
         {
             if (function_exists('wpcf7_add_form_tag')) {
-                wpcf7_add_form_tag(array('post_image_select', 'post_image_select*'), array($this, 'wpcf7_post_image_select_shortcode_handler'), true);
+                wpcf7_add_form_tag( array('post_image_select', 'post_image_select*'),
+                    array($this, 'wpcf7_post_image_select_shortcode_handler'),
+                    array(
+                        'name-attr' => true,
+                        'selectable-values' => true,
+                    )
+                );
             }
         }
 
@@ -59,7 +63,14 @@ if(!class_exists('wpcf7_post_fields_image_select') )
                 $atts['aria-required'] = 'true';
             }
 
-            $atts['aria-invalid'] = $validation_error ? 'true' : 'false';
+            if ( $validation_error ) {
+                $atts['aria-invalid'] = 'true';
+                $atts['aria-describedby'] = wpcf7_get_validation_error_reference(
+                    $tag->name
+                );
+            } else {
+                $atts['aria-invalid'] = 'false';
+            }
 
             $multiple = $tag->has_option( 'multiple' );
 
@@ -263,8 +274,8 @@ if(!class_exists('wpcf7_post_fields_image_select') )
             $atts = apply_filters('wpcf7_'.$tag->name.'_atts', $atts, $tag);
 
             $html = sprintf(
-                '<span class="wpcf7-form-control-wrap %1$s"><select %2$s>%3$s</select>%4$s</span>',
-                sanitize_html_class( $tag->name ), wpcf7_format_atts( $atts ), $html, $validation_error );
+                '<span class="wpcf7-form-control-wrap" data-name="%1$s"><select %2$s>%3$s</select>%4$s</span>',
+                esc_attr( $tag->name ), wpcf7_format_atts( $atts ), $html, $validation_error );
 
             return $html;
         }
@@ -275,29 +286,20 @@ if(!class_exists('wpcf7_post_fields_image_select') )
             return $length;
         }
 
-        /*
-         * Validation Filter
-         */
-        public function wpcf7_post_image_select_validation_filter( $result, $tag )
+        function wpcf7_swv_add_post_image_select_rules( $schema, $contact_form )
         {
-	        $tag = new WPCF7_FormTag( $tag );
+            $tags = $contact_form->scan_form_tags( array(
+                'type' => array( 'post_image_select*' ),
+            ) );
 
-            $name = $tag->name;
-
-            if ( isset( $_POST[$name] ) && is_array( $_POST[$name] ) ) {
-                foreach ( $_POST[$name] as $key => $value ) {
-                    if ( '' === $value )
-                        unset( $_POST[$name][$key] );
-                }
+            foreach ( $tags as $tag ) {
+                $schema->add_rule(
+                    wpcf7_swv_create_rule( 'required', array(
+                        'field' => $tag->name,
+                        'error' => wpcf7_get_message( 'invalid_required' ),
+                    ) )
+                );
             }
-
-            $empty = ! isset( $_POST[$name] ) || empty( $_POST[$name] ) && '0' !== $_POST[$name];
-
-            if ( $tag->is_required() && $empty ) {
-                $result->invalidate( $tag, wpcf7_get_message( 'invalid_required' ) );
-            }
-
-            return $result;
         }
 
         public function wpcf7_add_tag_generator_menu()
@@ -315,66 +317,9 @@ if(!class_exists('wpcf7_post_fields_image_select') )
             $description = __('Generate a form-tag for a posts image drop-down menu.', 'cf7-post-fields');
 
             include dirname(__FILE__) . '/generators/image-select.php';
-
-            $this->enqueue_post_field_javascript($args);
         }
 
-        protected function enqueue_post_field_javascript($args)
-        {
-            parent::enqueue_post_field_javascript($args);
-
-            ?>
-            <script type="text/javascript">
-                jQuery(function($) {
-
-                    $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').hide();
-
-                    var tg_name_field = $('#<?php echo esc_attr( $args['content'] . '-name' ); ?>');
-                    var tg_image_size_fields = $('#<?php echo esc_attr( $args['content'] . '-image-size input[type=hidden][name=image-size]' ); ?>');
-
-                    var image_width_field = $('#<?php echo esc_attr( $args['content'] . '-image-width' ); ?>');
-                    var image_height_field = $('#<?php echo esc_attr( $args['content'] . '-image-height' ); ?>');
-
-                    image_width_field.change(function() {
-                        set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                    });
-
-                    image_height_field.change(function() {
-                        set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                    });
-
-                    // If there is a page refresh error
-                    if($('#<?php echo esc_attr( $args['content'] . '-image-size' ); ?> input[type=radio][name=size-name]:checked').val() === 'custom') {
-                        $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').show();
-                        set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                    }
-
-                    $('#<?php echo esc_attr( $args['content'] . '-image-size' ); ?> input[type=radio][name=size-name]').change(function() {
-
-                        var image_size_name = $(this).val();
-
-                        if(image_size_name === 'custom') {
-                            $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').show();
-                            set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                        } else {
-                            $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').hide();
-                            tg_image_size_fields.val(image_size_name);
-                        }
-
-                        // Trigger the change event
-                        tg_name_field.trigger('change');
-                    });
-
-                    function set_custom_image_size(image_width, image_height, tg_name_field, tg_image_size_fields) {
-                        if( $.isNumeric(image_width) && $.isNumeric(image_height) ) {
-                            tg_image_size_fields.val(image_width_field.val() + 'x' + image_height_field.val());
-                        }
-
-                        tg_name_field.trigger('change');
-                    }
-                });
-            </script>
-            <?php
-        }
+        // Tag generator scripts are now loaded via external JS file.
+        // See cf7-post-fields.php admin_enqueue_scripts() and assets/js/admin-tag-generator.js
     }
 }

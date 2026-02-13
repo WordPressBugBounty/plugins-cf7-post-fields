@@ -19,14 +19,11 @@ if(!class_exists('wpcf7_post_fields_checkbox') )
             // Add shortcode
             add_action( 'wpcf7_init', array($this, 'wpcf7_add_form_tag_post_checkbox'));
 
-            // Validation filter
-            add_filter( 'wpcf7_validate_post_checkbox', array($this, 'wpcf7_post_checkbox_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_checkbox*', array($this, 'wpcf7_post_checkbox_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_radio', array($this, 'wpcf7_post_checkbox_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_radio*', array($this, 'wpcf7_post_checkbox_validation_filter'), 10, 2 );
+            add_action('wpcf7_swv_create_schema',  array($this, 'wpcf7_swv_add_post_checkbox_rules'), 10, 2 );
 
-            // Adding free text field
-            add_filter( 'wpcf7_posted_data', array($this, 'wpcf7_post_checkbox_posted_data'));
+            add_filter( 'wpcf7_posted_data_post_checkbox', 'wpcf7_posted_data_checkbox', 10, 3);
+            add_filter( 'wpcf7_posted_data_post_checkbox*', 'wpcf7_posted_data_checkbox', 10, 3);
+            add_filter( 'wpcf7_posted_data_post_radio', 'wpcf7_posted_data_checkbox', 10, 3);
 
             add_action( 'wpcf7_admin_init', array($this, 'wpcf7_add_tag_generator_menu'), 90 );
         }
@@ -34,12 +31,20 @@ if(!class_exists('wpcf7_post_fields_checkbox') )
 
         public function wpcf7_add_form_tag_post_checkbox()
         {
-            if (function_exists('wpcf7_add_form_tag')) {
-                wpcf7_add_form_tag(array('post_checkbox', 'post_checkbox*', 'post_radio', 'post_radio*'), array($this, 'wpcf7_post_checkbox_shortcode_handler'), true);
+            if (function_exists('wpcf7_add_form_tag'))
+            {
+                wpcf7_add_form_tag( array('post_checkbox', 'post_checkbox*', 'post_radio', 'post_radio*'),
+                    array($this, 'wpcf7_post_checkbox_form_tag_handler'),
+                    array(
+                        'name-attr' => true,
+                        'selectable-values' => true,
+                        'multiple-controls-container' => true,
+                    )
+                );
             }
         }
 
-        public function wpcf7_post_checkbox_shortcode_handler( $tag )
+        public function wpcf7_post_checkbox_form_tag_handler( $tag )
         {
             $tag = new WPCF7_FormTag( $tag );
 
@@ -73,6 +78,12 @@ if(!class_exists('wpcf7_post_fields_checkbox') )
 
             $atts['class'] = $tag->get_class_option( $class );
             $atts['id'] = $tag->get_id_option();
+
+            if ( $validation_error ) {
+                $atts['aria-describedby'] = wpcf7_get_validation_error_reference(
+                    $tag->name
+                );
+            }
 
             $tabindex = $tag->get_option( 'tabindex', 'int', true );
 
@@ -208,79 +219,39 @@ if(!class_exists('wpcf7_post_fields_checkbox') )
             $atts = apply_filters('wpcf7_'.$tag->name.'_atts', $atts, $tag);
 
             $html = sprintf(
-                '<span class="wpcf7-form-control-wrap %1$s"><span %2$s>%3$s</span>%4$s</span>',
+                '<span class="wpcf7-form-control-wrap" data-name="%1$s"><span %2$s>%3$s</span>%4$s</span>',
                 sanitize_html_class( $tag->name ), wpcf7_format_atts( $atts ), $html, $validation_error );
 
             return $html;
         }
 
-        /*
-         * Validation Filter
-         */
-        public function wpcf7_post_checkbox_validation_filter( $result, $tag )
-        {
-            $tag = new WPCF7_FormTag( $tag );
-
-            $type = $tag->type;
-            $name = $tag->name;
-
-            $value = isset( $_POST[$name] ) ? (array) $_POST[$name] : array();
-
-            if ( $tag->is_required() && empty( $value ) ) {
-                $result->invalidate( $tag, wpcf7_get_message( 'invalid_required' ) );
-            }
-
-            return $result;
-        }
-
-        public function wpcf7_post_checkbox_posted_data( $posted_data )
-        {
-            $tags = wpcf7_scan_shortcode(
-                array( 'type' => array( 'checkbox', 'checkbox*', 'radio', 'post_radio*' ) ) );
-
-            if ( empty( $tags ) ) {
-                return $posted_data;
-            }
+        function wpcf7_swv_add_post_checkbox_rules( $schema, $contact_form ) {
+            $tags = $contact_form->scan_form_tags( array(
+                'basetype' => array( 'post_checkbox', 'post_radio' ),
+            ) );
 
             foreach ( $tags as $tag ) {
-                $tag = new WPCF7_FormTag( $tag );
-
-                if ( ! isset( $posted_data[$tag->name] ) ) {
-                    continue;
+                if ( $tag->is_required() or 'post_radio' === $tag->type ) {
+                    $schema->add_rule(
+                        wpcf7_swv_create_rule( 'required', array(
+                            'field' => $tag->name,
+                            'error' => wpcf7_get_message( 'invalid_required' ),
+                        ) )
+                    );
                 }
 
-                $posted_items = (array) $posted_data[$tag->name];
-
-                if ( $tag->has_option( 'free_text' ) ) {
-                    if ( WPCF7_USE_PIPE ) {
-                        $values = $tag->pipes->collect_afters();
-                    } else {
-                        $values = $tag->values;
-                    }
-
-                    $last = array_pop( $values );
-                    $last = html_entity_decode( $last, ENT_QUOTES, 'UTF-8' );
-
-                    if ( in_array( $last, $posted_items ) ) {
-                        $posted_items = array_diff( $posted_items, array( $last ) );
-
-                        $free_text_name = sprintf(
-                            '_wpcf7_%1$s_free_text_%2$s', $tag->basetype, $tag->name );
-
-                        $free_text = $posted_data[$free_text_name];
-
-                        if ( ! empty( $free_text ) ) {
-                            $posted_items[] = trim( $last . ' ' . $free_text );
-                        } else {
-                            $posted_items[] = $last;
-                        }
-                    }
+                if ( 'post_radio' === $tag->type or $tag->has_option( 'exclusive' ) ) {
+                    $schema->add_rule(
+                        wpcf7_swv_create_rule( 'maxitems', array(
+                            'field' => $tag->name,
+                            'threshold' => 1,
+                            'error' => $contact_form->filter_message(
+                                __( "Too many items are selected.", 'contact-form-7' )
+                            ),
+                        ) )
+                    );
                 }
-
-                $posted_data[$tag->name] = $posted_items;
             }
-
-            return $posted_data;
         }
 
         public function wpcf7_add_tag_generator_menu()
@@ -309,8 +280,6 @@ if(!class_exists('wpcf7_post_fields_checkbox') )
             }
 
             include dirname(__FILE__) . '/generators/checkbox.php';
-
-            $this->enqueue_post_field_javascript($args);
         }
     }
 }

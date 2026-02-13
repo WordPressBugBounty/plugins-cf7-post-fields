@@ -12,28 +12,33 @@ if(!class_exists('wpcf7_post_fields_select') )
         /*
          *  Constructor
          */
-        public function __construct($plugin_file)
+        public function __construct( $plugin_file )
         {
-            parent::__construct($plugin_file);
+            parent::__construct( $plugin_file );
 
             // Add shortcode
-            add_action( 'wpcf7_init', array($this, 'wpcf7_add_form_tag_post_select'));
+            add_action( 'wpcf7_init', array( $this, 'wpcf7_add_form_tag_post_select' ) );
 
-            // Validation filter
-            add_filter( 'wpcf7_validate_post_select', array($this, 'wpcf7_post_select_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_select*', array($this, 'wpcf7_post_select_validation_filter'), 10, 2 );
+            add_action( 'wpcf7_swv_create_schema',  array( $this, 'wpcf7_swv_add_post_select_rules' ), 10, 2 );
 
             add_action( 'wpcf7_admin_init', array($this, 'wpcf7_add_tag_generator_menu'), 90 );
         }
 
         public function wpcf7_add_form_tag_post_select()
         {
-            if (function_exists('wpcf7_add_form_tag')) {
-                wpcf7_add_form_tag(array('post_select', 'post_select*'), array($this, 'wpcf7_post_select_shortcode_handler'), true);
+            if (function_exists('wpcf7_add_form_tag'))
+            {
+                wpcf7_add_form_tag( array('post_select', 'post_select*'),
+                    array($this, 'wpcf7_post_select_form_tag_handler'),
+                    array(
+                        'name-attr' => true,
+                        'selectable-values' => true,
+                    )
+                );
             }
         }
 
-        public function wpcf7_post_select_shortcode_handler( $tag )
+        public function wpcf7_post_select_form_tag_handler( $tag )
         {
             $tag = new WPCF7_FormTag( $tag );
 
@@ -59,7 +64,14 @@ if(!class_exists('wpcf7_post_fields_select') )
                 $atts['aria-required'] = 'true';
             }
 
-            $atts['aria-invalid'] = $validation_error ? 'true' : 'false';
+            if ( $validation_error ) {
+                $atts['aria-invalid'] = 'true';
+                $atts['aria-describedby'] = wpcf7_get_validation_error_reference(
+                    $tag->name
+                );
+            } else {
+                $atts['aria-invalid'] = 'false';
+            }
 
             $multiple = $tag->has_option( 'multiple' );
 
@@ -134,7 +146,7 @@ if(!class_exists('wpcf7_post_fields_select') )
              *
              * Example: get_post_type_object( $post_type )->labels->singular_name"
              */
-            $placeholder = apply_filters('wpcf7_'.$tag->name.'_placeholder', __('&mdash; Select &mdash;'), $tag->get_option('post-type', '', true), $tag);
+            $placeholder = apply_filters('wpcf7_'.$tag->name.'_placeholder', __( '&#8212;Please choose an option&#8212;', 'contact-form-7' ), $tag->get_option('post-type', '', true), $tag);
 
             if ( $include_blank || empty( $values ) ) {
                 array_unshift( $labels, $placeholder );
@@ -207,44 +219,40 @@ if(!class_exists('wpcf7_post_fields_select') )
             $atts = apply_filters('wpcf7_'.$tag->name.'_atts', $atts, $tag);
 
             $html = sprintf(
-                '<span class="wpcf7-form-control-wrap %1$s"><select %2$s>%3$s</select>%4$s</span>',
-                sanitize_html_class( $tag->name ), wpcf7_format_atts( $atts ), $html, $validation_error );
+                '<span class="wpcf7-form-control-wrap" data-name="%1$s"><select %2$s>%3$s</select>%4$s</span>',
+                esc_attr( $tag->name ),
+                wpcf7_format_atts( $atts ),
+                $html,
+                $validation_error
+            );
 
             return $html;
         }
 
-        /*
-         * Validation Filter
-         */
-        public function wpcf7_post_select_validation_filter( $result, $tag )
+        function wpcf7_swv_add_post_select_rules( $schema, $contact_form )
         {
-	        $tag = new WPCF7_FormTag( $tag );
+            $tags = $contact_form->scan_form_tags( array(
+                'type' => array( 'post_select*' ),
+            ) );
 
-            $name = $tag->name;
-
-            if ( isset( $_POST[$name] ) && is_array( $_POST[$name] ) ) {
-                foreach ( $_POST[$name] as $key => $value ) {
-                    if ( '' === $value )
-                        unset( $_POST[$name][$key] );
-                }
+            foreach ( $tags as $tag ) {
+                $schema->add_rule(
+                    wpcf7_swv_create_rule( 'required', array(
+                        'field' => $tag->name,
+                        'error' => wpcf7_get_message( 'invalid_required' ),
+                    ) )
+                );
             }
-
-            $empty = ! isset( $_POST[$name] ) || empty( $_POST[$name] ) && '0' !== $_POST[$name];
-
-            if ( $tag->is_required() && $empty ) {
-                $result->invalidate( $tag, wpcf7_get_message( 'invalid_required' ) );
-            }
-
-            return $result;
         }
 
         public function wpcf7_add_tag_generator_menu()
         {
-            if (class_exists('WPCF7_TagGenerator'))
-            {
-                $tag_generator = WPCF7_TagGenerator::get_instance();
-                $tag_generator->add('post_select', __('posts').' '.__( 'drop-down menu', 'contact-form-7' ), array($this, 'wpcf7_tag_generator_menu'));
-            }
+            $tag_generator = WPCF7_TagGenerator::get_instance();
+
+            $tag_generator->add(
+                'post_select', __('posts') . ' ' . __( 'drop-down menu', 'contact-form-7' ),
+                array( $this, 'wpcf7_tag_generator_menu' )
+            );
         }
 
         public function wpcf7_tag_generator_menu( $contact_form, $args = '' )
@@ -253,8 +261,6 @@ if(!class_exists('wpcf7_post_fields_select') )
             $description = __('Generate a form-tag for a posts drop-down menu.', 'cf7-post-fields');
 
             include dirname(__FILE__) . '/generators/select.php';
-
-            $this->enqueue_post_field_javascript($args);
         }
     }
 }

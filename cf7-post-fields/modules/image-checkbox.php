@@ -19,14 +19,7 @@ if(!class_exists('wpcf7_post_fields_image_checkbox') )
             // Add shortcode
             add_action( 'wpcf7_init', array($this, 'wpcf7_add_form_tag_post_image_checkbox'));
 
-            // Validation filter
-            add_filter( 'wpcf7_validate_post_image_checkbox', array($this, 'wpcf7_post_image_checkbox_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_image_checkbox*', array($this, 'wpcf7_post_image_checkbox_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_image_radio', array($this, 'wpcf7_post_image_checkbox_validation_filter'), 10, 2 );
-            add_filter( 'wpcf7_validate_post_image_radio*', array($this, 'wpcf7_post_image_checkbox_validation_filter'), 10, 2 );
-
-            // Adding free text field
-            add_filter( 'wpcf7_posted_data', array($this, 'wpcf7_post_image_checkbox_posted_data'));
+            add_action('wpcf7_swv_create_schema',  array($this, 'wpcf7_swv_add_post_image_checkbox_rules'), 10, 2 );
 
             add_action( 'wpcf7_admin_init', array($this, 'wpcf7_add_tag_generator_menu'), 90 );
 
@@ -39,7 +32,14 @@ if(!class_exists('wpcf7_post_fields_image_checkbox') )
         public function wpcf7_add_form_tag_post_image_checkbox()
         {
             if (function_exists('wpcf7_add_form_tag')) {
-                wpcf7_add_form_tag(array('post_image_checkbox', 'post_image_checkbox*', 'post_image_radio', 'post_image_radio*'), array($this, 'wpcf7_post_image_checkbox_shortcode_handler'), true);
+                wpcf7_add_form_tag( array('post_image_checkbox', 'post_image_checkbox*', 'post_image_radio', 'post_image_radio*'),
+                    array($this, 'wpcf7_post_image_checkbox_shortcode_handler'),
+                    array(
+                        'name-attr' => true,
+                        'selectable-values' => true,
+                        'multiple-controls-container' => true,
+                    )
+                );
             }
         }
 
@@ -83,6 +83,12 @@ if(!class_exists('wpcf7_post_fields_image_checkbox') )
 
             $atts['class'] = $tag->get_class_option( $class );
             $atts['id'] = $tag->get_id_option();
+
+            if ( $validation_error ) {
+                $atts['aria-describedby'] = wpcf7_get_validation_error_reference(
+                    $tag->name
+                );
+            }
 
             $tabindex = $tag->get_option( 'tabindex', 'int', true );
 
@@ -187,11 +193,14 @@ if(!class_exists('wpcf7_post_fields_image_checkbox') )
 
                     $excerpt = apply_filters('wpcf7_'.$tag->name.'_'.$tag->basetype.'_item_excerpt', $excerpt, $post->ID );
 
+                    $image_html = '';
                     if($post->post_type === 'attachment' && wp_attachment_is_image($post->ID)) {
                         $image_html = wp_get_attachment_image($post->ID, $image_size);
                     } else if(has_post_thumbnail($post->ID)) {
                         $image_html = get_the_post_thumbnail($post->ID, $image_size);
-                    } else {
+                    }
+
+                    if( empty( $image_html ) ) {
                         $image_html = '<div style="width:'.$image_width.'px; height:'.$image_width.'px; font-size:'.$image_width.'px;" class="wp-post-image dashicons dashicons-format-image"></div>';
                     }
 
@@ -287,80 +296,40 @@ if(!class_exists('wpcf7_post_fields_image_checkbox') )
             $atts = apply_filters('wpcf7_'.$tag->name.'_atts', $atts, $tag);
 
             $html = sprintf(
-                '<span class="wpcf7-form-control-wrap %1$s"><ul %2$s>%3$s</ul>%4$s</span>',
-                sanitize_html_class( $tag->name ), wpcf7_format_atts( $atts ), $html, $validation_error
+                '<span class="wpcf7-form-control-wrap" data-name="%1$s"><ul %2$s>%3$s</ul>%4$s</span>',
+                esc_attr( $tag->name ), wpcf7_format_atts( $atts ), $html, $validation_error
             );
 
             return $html;
         }
 
-        /*
-         * Validation Filter
-         */
-        public function wpcf7_post_image_checkbox_validation_filter( $result, $tag )
-        {
-            $tag = new WPCF7_FormTag( $tag );
-
-            $type = $tag->type;
-            $name = $tag->name;
-
-            $value = isset( $_POST[$name] ) ? (array) $_POST[$name] : array();
-
-            if ( $tag->is_required() && empty( $value ) ) {
-                $result->invalidate( $tag, wpcf7_get_message( 'invalid_required' ) );
-            }
-
-            return $result;
-        }
-
-        public function wpcf7_post_image_checkbox_posted_data( $posted_data )
-        {
-            $tags = wpcf7_scan_shortcode(
-                array( 'type' => array( 'checkbox', 'checkbox*', 'radio', 'radio*' ) ) );
-
-            if ( empty( $tags ) ) {
-                return $posted_data;
-            }
+        function wpcf7_swv_add_post_image_checkbox_rules( $schema, $contact_form ) {
+            $tags = $contact_form->scan_form_tags( array(
+                'basetype' => array( 'post_image_checkbox', 'post_image_radio' ),
+            ) );
 
             foreach ( $tags as $tag ) {
-                $tag = new WPCF7_FormTag( $tag );
-
-                if ( ! isset( $posted_data[$tag->name] ) ) {
-                    continue;
+                if ( $tag->is_required() or 'post_image_radio' === $tag->type ) {
+                    $schema->add_rule(
+                        wpcf7_swv_create_rule( 'required', array(
+                            'field' => $tag->name,
+                            'error' => wpcf7_get_message( 'invalid_required' ),
+                        ) )
+                    );
                 }
 
-                $posted_items = (array) $posted_data[$tag->name];
-
-                if ( $tag->has_option( 'free_text' ) ) {
-                    if ( WPCF7_USE_PIPE ) {
-                        $values = $tag->pipes->collect_afters();
-                    } else {
-                        $values = $tag->values;
-                    }
-
-                    $last = array_pop( $values );
-                    $last = html_entity_decode( $last, ENT_QUOTES, 'UTF-8' );
-
-                    if ( in_array( $last, $posted_items ) ) {
-                        $posted_items = array_diff( $posted_items, array( $last ) );
-
-                        $free_text_name = sprintf(
-                            '_wpcf7_%1$s_free_text_%2$s', $tag->basetype, $tag->name );
-
-                        $free_text = $posted_data[$free_text_name];
-
-                        if ( ! empty( $free_text ) ) {
-                            $posted_items[] = trim( $last . ' ' . $free_text );
-                        } else {
-                            $posted_items[] = $last;
-                        }
-                    }
+                if ( 'post_image_radio' === $tag->type or $tag->has_option( 'exclusive' ) ) {
+                    $schema->add_rule(
+                        wpcf7_swv_create_rule( 'maxitems', array(
+                            'field' => $tag->name,
+                            'threshold' => 1,
+                            'error' => $contact_form->filter_message(
+                                __( "Too many items are selected.", 'contact-form-7' )
+                            ),
+                        ) )
+                    );
                 }
-
-                $posted_data[$tag->name] = $posted_items;
             }
-
-            return $posted_data;
         }
 
         public function wpcf7_add_tag_generator_menu()
@@ -389,67 +358,10 @@ if(!class_exists('wpcf7_post_fields_image_checkbox') )
             }
 
             include dirname(__FILE__) . '/generators/image-checkbox.php';
-
-            $this->enqueue_post_field_javascript($args);
         }
 
-        protected function enqueue_post_field_javascript($args)
-        {
-            parent::enqueue_post_field_javascript($args);
-
-            ?>
-            <script type="text/javascript">
-                jQuery(function($) {
-
-                    $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').hide();
-
-                    var tg_name_field = $('#<?php echo esc_attr( $args['content'] . '-name' ); ?>');
-                    var tg_image_size_fields = $('#<?php echo esc_attr( $args['content'] . '-image-size input[type=hidden][name=image-size]' ); ?>');
-
-                    var image_width_field = $('#<?php echo esc_attr( $args['content'] . '-image-width' ); ?>');
-                    var image_height_field = $('#<?php echo esc_attr( $args['content'] . '-image-height' ); ?>');
-
-                    image_width_field.change(function() {
-                        set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                    });
-
-                    image_height_field.change(function() {
-                        set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                    });
-
-                    // If there is a page refresh error
-                    if($('#<?php echo esc_attr( $args['content'] . '-image-size' ); ?> input[type=radio][name=size-name]:checked').val() === 'custom') {
-                        $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').show();
-                        set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                    }
-
-                    $('#<?php echo esc_attr( $args['content'] . '-image-size' ); ?> input[type=radio][name=size-name]').change(function() {
-
-                        var image_size_name = $(this).val();
-
-                        if(image_size_name === 'custom') {
-                            $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').show();
-                            set_custom_image_size(image_width_field.val(), image_height_field.val(), tg_name_field, tg_image_size_fields);
-                        } else {
-                            $('.<?php echo esc_attr( $args['content'] . '-custom-image-size' ); ?>').hide();
-                            tg_image_size_fields.val(image_size_name);
-                        }
-
-                        // Trigger the change event
-                        tg_name_field.trigger('change');
-                    });
-
-                    function set_custom_image_size(image_width, image_height, tg_name_field, tg_image_size_fields) {
-                        if( $.isNumeric(image_width) && $.isNumeric(image_height) ) {
-                            tg_image_size_fields.val(image_width_field.val() + 'x' + image_height_field.val());
-                        }
-
-                        tg_name_field.trigger('change');
-                    }
-                });
-            </script>
-            <?php
-        }
+        // Tag generator scripts are now loaded via external JS file.
+        // See cf7-post-fields.php admin_enqueue_scripts() and assets/js/admin-tag-generator.js
 
         public function wpcf7_image_checkbox_enqueue_styles()
         {

@@ -2,11 +2,11 @@
 /*
  * Plugin Name:         Contact Form 7 - Post Fields
  * Description:         Provides a dynamic post select, radio and checkbox field to your CF7 forms.
- * Version:             2.5.8
+ * Version:             2.6.0
  * Author:              Markus Wiesenhofer
  * Author URI:          mailto:markusfroehlich01@gmail.com
  * Requires at least:   4.0
- * Tested up to:        6.4.1
+ * Tested up to:        6.9.1
  * Text Domain:         cf7-post-fields
  * Domain Path:         /languages/
  * License:             GPL v2 or later
@@ -89,15 +89,31 @@ if(!class_exists('WPCF7_Post_Fields') )
         }
 
         /**
-         * Register admin styles
+         * Register admin styles and scripts
          */
-        public static function admin_enqueue_scripts()
+        public function admin_enqueue_scripts()
         {
             $screen = get_current_screen();
             $screen_id = $screen ? $screen->id : '';
 
             if( $screen_id === 'plugins' ) {
                 wp_enqueue_style( 'cf7_post_fields_backend', plugins_url( basename( dirname( __FILE__ ) ) ) . '/assets/css/admin.css', '', '2.5.1' );
+            }
+
+            // Enqueue tag generator script on CF7 admin pages
+            if( strpos( $screen_id, 'wpcf7' ) !== false )
+            {
+                wp_enqueue_script( 'cf7-post-fields-tag-generator', plugins_url( 'assets/js/admin-tag-generator.js', __FILE__ ), array( 'jquery' ), '2.5.9', true );
+
+                wp_localize_script( 'cf7-post-fields-tag-generator', 'wpcf7PostFieldsTagGen', array(
+                    'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                    'nonce'   => wp_create_nonce( 'wpcf7-post-field-tax-nonce' ),
+                    'i18n'    => array(
+                        'relationship'      => __( 'Relationship' ),
+                        'noCategoriesFound' => __( 'No categories found.' ),
+                        'unknownError'      => __( 'An unknown error occurred' ),
+                    ),
+                ) );
             }
         }
 

@@ -1,10 +1,10 @@
-=== Plugin Name ===
+=== Contact Form 7 - Post Fields ===
 Contributors: markusfroehlich
 Donate link: https://www.paypal.com/donate?business=DUKJP25LKTX62&currency_code=EUR
 Tags: contact form 7, contact, contact form, form, post fields, posts
 Requires at least: 4.0
-Tested up to: 6.4.1
-Stable tag: 2.5.0
+Tested up to: 6.9.1
+Stable tag: 2.6.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,15 @@ In case you want to show how much you appreciate my work, I'd be very grateful i
 4. Post select field generator
 
 == Changelog ==
+= 2.6.0 =
+* Dev - Migrated image-select and image-checkbox validation to the new SWV (Schema-based Validation) introduced in Contact Form 7 5.6
+* Dev - Updated form tag registration to use feature arrays (name-attr, selectable-values, multiple-controls-container)
+* Dev - Updated HTML wrapper from class-based to data-name attribute
+* Dev - Added aria-describedby attribute for improved accessibility on validation errors
+* Dev - Removed deprecated wpcf7_validate filter based validation
+* Fix - Moved tag generator JavaScript to external file for CF7 6.x compatibility (wp_kses filtering)
+* Dev - Tag generator scripts now enqueued via admin_enqueue_scripts instead of inline output
+
 = 2.5.8 =
 * Dev - Changed Image Select Placeholder
 

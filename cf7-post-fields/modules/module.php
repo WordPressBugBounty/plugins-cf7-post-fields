@@ -60,7 +60,7 @@ if(!class_exists('wpcf7_post_fields_module') )
             $post_args = array();
 
             // Set the post type
-            $post_args['post_type'] = post_type_exists($args['post_type']) ? $args['post_type'] : 'post';
+            $post_args['post_type'] = !empty( $args['post_type'] ) ? $args['post_type'] : 'post';
 
             // Set the number of posts
             $post_args['posts_per_page'] = is_numeric($args['posts_per_page']) ? absint($args['posts_per_page']) : -1;
@@ -338,12 +338,12 @@ if(!class_exists('wpcf7_post_fields_module') )
         {
             $meta_data_array = array();
 
-            if(!is_string($meta_string) && !empty($meta_string)) {
+            if( !is_string($meta_string) || empty($meta_string) ) {
                 return $meta_data_array;
             }
 
             $i = 0;
-            foreach(explode('|', $meta_string) as $meta_data)
+            foreach( explode( '|', $meta_string ) as $meta_data )
             {
                 switch($meta_data)
                 {
@@ -537,106 +537,6 @@ if(!class_exists('wpcf7_post_fields_module') )
                     </span>
                 </td>
             </tr>
-            <?php
-        }
-
-        /*
-         * Javascript for the Post Field Selection in the Table
-         */
-        protected function enqueue_post_field_javascript($args)
-        {
-            ?>
-            <script type="text/javascript">
-                jQuery(function($) {
-
-                    $('#<?php echo esc_attr( $args['content'] . '-post-type' ); ?> input[type=radio][name=post-type]').change(function() {
-
-                        var post_type = $(this).val();
-
-                        var tg_name_field = $('#<?php echo esc_attr( $args['content'] . '-name' ); ?>');
-                        var tg_tax_fieldset = $('#<?php echo esc_attr( $args['content'] . '-post-taxonomies' ); ?>');
-
-                        // Empty taxonomy fieldset
-                        tg_tax_fieldset.empty();
-
-                        // Trigger the change event
-                        tg_name_field.trigger('change');
-
-                        // Show loader
-                        tg_tax_fieldset.html('<span class="spinner is-active" style="float:none;"></span>');
-
-                        // Ajax request to get all taxonomies from a post type
-                        $.ajax({
-                            url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                            type: 'POST',
-                            dataType: 'json',
-                            data: {
-                                action: 'wpcf7_post_fields_get_taxonomies',
-                                security : '<?php echo wp_create_nonce('wpcf7-post-field-tax-nonce'); ?>',
-                                post_type: post_type
-                            },
-                            success: function(result) {
-                                tg_tax_fieldset.empty();
-
-                                if(result.success == true) {
-                                    var count_tax = 0;
-                                    $.each( result.data, function( key, value ) {
-
-                                        var tax_field = $("<input type='text' value=''>").attr("class", "oneline option").attr("name", key).attr("placeholder", value);
-
-                                        // Append the text field to the taxonomy fieldset
-                                        tg_tax_fieldset.append(tax_field).append('<br />');
-
-                                        // Hack to trigger the change event from the contact form 7 base
-                                        tax_field.change(function() {
-                                            tg_name_field.trigger('change');
-                                        });
-
-                                        count_tax++;
-                                    });
-
-                                    // Categories found
-                                    if(count_tax > 0) {
-                                        // Add Relationship radios
-                                        tg_tax_fieldset.append('<?php echo __('Relationship').': '; ?>');
-                                        tg_tax_fieldset.append($('<label>').append($("<input type='radio'>").attr("name", "tax-relation").attr("class", "option").attr("value", 'OR').attr("checked", 'checked')).append('OR'));
-                                        tg_tax_fieldset.append('&nbsp;');
-                                        tg_tax_fieldset.append($('<label>').append($("<input type='radio'>").attr("name", "tax-relation").attr("class", "option").attr("value", 'AND')).append('AND'));
-
-                                        // Register the change event
-                                        tg_tax_fieldset.find("input[name='tax-relation']").change(function() {
-                                            tg_name_field.trigger('change');
-                                        });
-
-                                        // Trigger the change event now to set the tax-relation
-                                        tg_name_field.trigger('change');
-                                    }
-                                    else {
-                                        tg_tax_fieldset.html('<?php  _e('No categories found.'); ?>');
-                                    }
-                                } else {
-                                    alert(response.data);
-                                }
-                            },
-                            error: function() {
-                                tg_tax_fieldset.html('<?php  _e('An unknown error occurred'); ?>');
-                            }
-                        });
-                    });
-
-                    $('#<?php echo esc_attr( $args['content'] . '-value-field' ); ?> input[type=radio][name=value-field]').change(function() {
-
-                        var value_field = $(this).val();
-                        var tg_value_field_meta = $('#<?php echo esc_attr( $args['content'] . '-value-field-meta-key' ); ?>');
-
-                        if(value_field === 'meta') {
-                            tg_value_field_meta.show();
-                        } else {
-                            tg_value_field_meta.hide().val('').trigger('change');
-                        }
-                    });
-                });
-            </script>
             <?php
         }
 
